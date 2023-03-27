@@ -6,8 +6,8 @@ resource "google_compute_autoscaler" "default" {
   target = google_compute_instance_group_manager.default.id
 
   autoscaling_policy {
-    max_replicas    = 5
-    min_replicas    = 1
+    max_replicas    = 3
+    min_replicas    = 2
     cooldown_period = 60
 
     metric {
@@ -22,17 +22,17 @@ resource "google_compute_instance_template" "default" {
   provider = google-beta
 
   name           = "my-instance-template"
-  machine_type   = "e2-medium"
+  machine_type   = "e2-micro"
   can_ip_forward = false
 
   tags = ["foo", "bar"]
 
   disk {
-    source_image = data.google_compute_image.debian_9.id
+    source_image = "projects/alert-flames-286515/global/images/wordpress-image-1678576988"
   }
 
   network_interface {
-    network = "default"
+    network = "project-vpc"
   }
 
   metadata = {
@@ -65,12 +65,6 @@ resource "google_compute_instance_group_manager" "default" {
   base_instance_name = "autoscaler-sample"
 }
 
-data "google_compute_image" "debian_9" {
-  provider = google-beta
-
-  family  = "debian-11"
-  project = "debian-cloud"
-}
 
 provider "google-beta" {
   region = "us-central1"
