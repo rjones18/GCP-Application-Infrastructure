@@ -1,129 +1,105 @@
-resource "google_compute_instance_template" "my_template" {
-  name_prefix = "my-template-"
-  machine_type = "n1-standard-2"
-
+resource "google_compute_instance_template" "instance_template" {
+  name         = "instance-template"
+  machine_type = "e2-medium"
+  tags = ["http-server"]
   disk {
-    source_image = "projects/alert-flames-286515/global/images/wordpress-image-1678576988"
+    source_image = "projects/alert-flames-286515/global/images/wordpress-image-1681847888"
+    auto_delete  = true
+    boot         = true
   }
 
   network_interface {
     network = "project-vpc"
+    subnetwork = "app-subnet-1"
   }
 
-resource "google_compute_target_pool" "my_target_pool" {
-  name = "my-target-pool"
-  region = "us-central1"
-  instances = google_compute_instance_group_manager.my_group.self_link
-}
-
-resource "google_compute_instance_group_manager" "my_group" {
-  name = "my-group"
-  region = "us-central1"
-  base_instance_name = "my-instance"
-  instance_template = google_compute_instance_template.my_template.self_link
-  target_size = 1
-  autoscaler {
-    cool_down_period_sec = 60
-    min_num_replicas = 1
-    max_num_replicas = 5
-    target_cpu_utilization = 0.6
+  service_account {
+    email  = "904016781596-compute@developer.gserviceaccount.com"
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 }
 
-resource "google_compute_forwarding_rule" "my_forwarding_rule" {
-  name = "my-forwarding-rule"
+resource "google_compute_instance_group_manager" "instance_group" {
+  name               = "managed-instance-group"
+  zone               = "us-central1-a"
+  base_instance_name = "managed-instance"
+
+  target_pools = [google_compute_target_pool.target_pool.self_link]
+
+  target_size = 2
+
+  named_port {
+    name = "http"
+    port = 80
+  }
+
+  version {
+    instance_template = google_compute_instance_template.instance_template.self_link
+  }
+}
+
+resource "google_compute_autoscaler" "autoscaler" {
+  name = "autoscaler"
+  zone = "us-central1-a"
+
+  target = google_compute_instance_group_manager.instance_group.self_link
+
+  autoscaling_policy {
+    max_replicas    = 5
+    min_replicas    = 1
+    cooldown_period = 60
+
+    cpu_utilization {
+      target = 0.5
+    }
+  }
+}
+
+resource "google_compute_target_pool" "target_pool" {
+  name = "target-pool"
+  health_checks = [google_compute_http_health_check.http_health_check.self_link]
+}
+
+resource "google_compute_forwarding_rule" "http_forwarding_rule" {
+  name        = "http-forwarding-rule"
+  target      = google_compute_target_pool.target_pool.self_link
+  port_range  = "80"
+  ip_protocol = "TCP"
+  ip_address  = google_compute_address.regional_ip.address
+}
+
+resource "google_compute_address" "regional_ip" {
+  name   = "regional-ip"
   region = "us-central1"
-  ip_address = google_compute_global_address.my_global_address.address
-  load_balancing_scheme = "INTERNAL"
-  network = "default"
-  subnetwork = "default"
-  target = google_compute_target_pool.my_target_pool.self_link
 }
 
-
-resource "google_compute_global_address" "my_global_address" {
-  name = "my-global-address"
+resource "google_compute_http_health_check" "http_health_check" {
+  name               = "http-health-check"
+  request_path       = "/"
+  check_interval_sec = 30
+  timeout_sec        = 5
+  healthy_threshold  = 2
+  unhealthy_threshold = 3
+  port               = 80
 }
 
-resource "google_compute_global_forwarding_rule" "my_global_forwarding_rule" {
-  name = "my-global-forwarding-rule"
-  target = google_compute_forwarding_rule.my_forwarding_rule.self_link
-  ip_address = google_compute_global_address.my_global_address.address
+resource "google_compute_router" "router" {
+  name    = "nat-router"
+  network = "project-vpc"
+  region  = "us-central1"
 }
 
+resource "google_compute_router_nat" "nat" {
+  name   = "nat-gateway"
+  router = google_compute_router.router.name
+  region = google_compute_router.router.region
 
+  nat_ip_allocate_option = "AUTO_ONLY"
 
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 
-# resource "google_compute_autoscaler" "default" {
-#   provider = google-beta
-
-#   name   = "my-autoscaler"
-#   zone   = "us-central1-f"
-#   target = google_compute_instance_group_manager.default.id
-
-#   autoscaling_policy {
-#     max_replicas    = 3
-#     min_replicas    = 2
-#     cooldown_period = 60
-
-#     metric {
-#       name                       = "pubsub.googleapis.com/subscription/num_undelivered_messages"
-#       filter                     = "resource.type = pubsub_subscription AND resource.label.subscription_id = our-subscription"
-#       single_instance_assignment = 65535
-#     }
-#   }
-# }
-
-# resource "google_compute_instance_template" "default" {
-#   provider = google-beta
-
-#   name           = "my-instance-template"
-#   machine_type   = "e2-micro"
-#   can_ip_forward = false
-
-#   tags = ["foo", "bar"]
-
-#   disk {
-#     source_image = "projects/alert-flames-286515/global/images/wordpress-image-1678576988"
-#   }
-
-#   network_interface {
-#     network = "project-vpc"
-#   }
-
-#   metadata = {
-#     foo = "bar"
-#   }
-
-#   service_account {
-#     scopes = ["userinfo-email", "compute-ro", "storage-ro"]
-#   }
-# }
-
-# resource "google_compute_target_pool" "default" {
-#   provider = google-beta
-
-#   name = "my-target-pool"
-# }
-
-# resource "google_compute_instance_group_manager" "default" {
-#   provider = google-beta
-
-#   name = "my-igm"
-#   zone = "us-central1-f"
-
-#   version {
-#     instance_template = google_compute_instance_template.default.id
-#     name              = "primary"
-#   }
-
-#   target_pools       = [google_compute_target_pool.default.id]
-#   base_instance_name = "autoscaler-sample"
-# }
-
-
-# provider "google-beta" {
-#   region = "us-central1"
-#   zone   = "us-central1-a"
-
-# }
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
